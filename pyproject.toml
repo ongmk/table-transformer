@@ -1,0 +1,49 @@
+[project]
+name = "table-transformer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.10.9"
+dependencies = [
+    "submitit",
+    "onnx",
+    "onnxruntime",
+    "huggingface-hub>=1.2.3",
+    "torch>=1.13.1",
+    "torchvision>=0.14.1",
+    "pandas>=1.5.3",
+    "scikit-learn>=1.2.1",
+    "tqdm>=4.65.0",
+    "Cython>=0.29.33",
+    "matplotlib>=3.7.0",
+    "numpy>=1.24.2",
+    "pycocotools>=2.0.6",
+    "Pillow>=9.4.0",
+    "editdistance>=0.6.2",
+    "scikit-image>=0.20.0",
+    "scipy>=1.10.1",
+    "PyMuPDF>=1.21.1",
+    "ruff>=0.14.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.3,<0.10.0"] # Required to build project as a package
+build-backend = "uv_build"             # Required to build project as a package
+
+[tool.uv.build-backend]
+module-root = "src"
+namespace = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu121"
+
+
+[tool.ruff]
+lint.extend-select = ["ANN", "I"]
+lint.ignore = ["ANN401"]
+extend-include = ["*.ipynb"]

@@ -1,0 +1,22 @@
+{
+  // Environment settings
+  "python.analysis.exclude": ["**/.venv/**", "data/**"],
+  "search.exclude": {
+    "**/.venv": true,
+    "data/pubtables-1m/**": true
+  },
+  // Coding style settings
+  "ruff.interpreter": ["${workspaceFolder}/.venv/bin/python"],
+  "ruff.configuration": {
+    "lint": {
+      "unfixable": ["F401"] // Stop ruff from removing unused imports
+    }
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "always"
+    }
+  }
+}

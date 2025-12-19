@@ -129,4 +129,10 @@ dmypy.json
 .pyre/
 
 tmp/*
-!tmp/.gitkeep
+!.gitkeep
+
+models/*
+!.gitkeep
+
+data/*
+!.gitkeep
