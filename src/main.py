@@ -6,21 +6,20 @@ import argparse
 import json
 import os
 import random
-import string
-import sys
 from datetime import datetime
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+import torch.multiprocessing as mp
+from torch.distributed import destroy_process_group
+from torch.utils.data import DataLoader, DistributedSampler
 
-import detr.datasets.transforms as R
 import detr.util.misc as utils
 import table_datasets as TD
 from detr.engine import evaluate, train_one_epoch
 from detr.models import build_model
+from detr.util.misc import init_distributed_mode
 from eval import eval_coco
-from table_datasets import PDFTablesDataset
 
 
 def get_args():
@@ -78,6 +77,9 @@ def get_args():
     parser.add_argument("--test_max_size", type=int)
     parser.add_argument("--eval_pool_size", type=int, default=1)
     parser.add_argument("--eval_step", type=int, default=1)
+    parser.add_argument(
+        "--distributed", action="store_true", help="Enable distributed training"
+    )
 
     return parser.parse_args()
 
@@ -115,7 +117,7 @@ def get_data(args):
     class_map = get_class_map(args.data_type)
 
     if args.mode == "train":
-        dataset_train = PDFTablesDataset(
+        dataset_train = TD.PDFTablesDataset(
             os.path.join(args.data_root_dir, "train"),
             get_transform(args.data_type, "train"),
             do_crop=False,
@@ -127,7 +129,7 @@ def get_data(args):
             xml_fileset="train_filelist.txt",
             class_map=class_map,
         )
-        dataset_val = PDFTablesDataset(
+        dataset_val = TD.PDFTablesDataset(
             os.path.join(args.data_root_dir, "val"),
             get_transform(args.data_type, "val"),
             do_crop=False,
@@ -139,8 +141,12 @@ def get_data(args):
             class_map=class_map,
         )
 
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+        if args.distributed:
+            sampler_train = DistributedSampler(dataset_train)
+            sampler_val = DistributedSampler(dataset_val, shuffle=False)
+        else:
+            sampler_train = torch.utils.data.RandomSampler(dataset_train)
+            sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler_train, args.batch_size, drop_last=True
@@ -163,7 +169,7 @@ def get_data(args):
         return data_loader_train, data_loader_val, dataset_val, len(dataset_train)
 
     elif args.mode == "eval":
-        dataset_test = PDFTablesDataset(
+        dataset_test = TD.PDFTablesDataset(
             os.path.join(args.data_root_dir, "test"),
             get_transform(args.data_type, "val"),
             do_crop=False,
@@ -174,7 +180,10 @@ def get_data(args):
             xml_fileset="test_filelist.txt",
             class_map=class_map,
         )
-        sampler_test = torch.utils.data.SequentialSampler(dataset_test)
+        if args.distributed:
+            sampler_test = DistributedSampler(dataset_test, shuffle=False)
+        else:
+            sampler_test = torch.utils.data.SequentialSampler(dataset_test)
 
         data_loader_test = DataLoader(
             dataset_test,
@@ -187,9 +196,9 @@ def get_data(args):
         return data_loader_test, dataset_test
 
     elif args.mode == "grits" or args.mode == "grits-all":
-        dataset_test = PDFTablesDataset(
+        dataset_test = TD.PDFTablesDataset(
             os.path.join(args.data_root_dir, "test"),
-            RandomMaxResize(1000, 1000),
+            TD.RandomMaxResize(1000, 1000),
             include_original=True,
             max_size=args.max_test_size,
             make_coco=False,
@@ -232,6 +241,9 @@ def train(args, model, criterion, postprocessors, device):
     print("finished loading data in :", datetime.now() - dataloading_time)
 
     model_without_ddp = model
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
     param_dicts = [
         {
             "params": [
@@ -331,6 +343,8 @@ def train(args, model, criterion, postprocessors, device):
     print("Start training")
     start_time = datetime.now()
     for epoch in range(args.start_epoch, args.epochs):
+        if args.distributed:
+            data_loader_train.sampler.set_epoch(epoch)
         print("-" * 100)
 
         epoch_timing = datetime.now()
@@ -362,44 +376,43 @@ def train(args, model, criterion, postprocessors, device):
         )
 
         # Save current model training progress
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-            },
-            model_save_path,
-        )
-
-        # Save checkpoint for evaluation
-        if (epoch + 1) % args.checkpoint_freq == 0:
-            model_save_path_epoch = os.path.join(
-                output_directory, "model_" + str(epoch + 1) + ".pth"
+        if not args.distributed or utils.is_main_process():
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model_without_ddp.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                },
+                model_save_path,
             )
-            torch.save(model.state_dict(), model_save_path_epoch)
+
+            # Save checkpoint for evaluation
+            if (epoch + 1) % args.checkpoint_freq == 0:
+                model_save_path_epoch = os.path.join(
+                    output_directory, "model_" + str(epoch + 1) + ".pth"
+                )
+                torch.save(model_without_ddp.state_dict(), model_save_path_epoch)
 
     print("Total training time: ", datetime.now() - start_time)
 
 
-def main():
-    cmd_args = get_args().__dict__
-    config_args = json.load(open(cmd_args["config_file"], "rb"))
-    for key, value in cmd_args.items():
-        if key not in config_args or value is not None:
-            config_args[key] = value
-    # config_args.update(cmd_args)
+def main_worker(gpu: int, config_args: dict) -> None:
+    """
+    Worker function for distributed training.
+
+    Args:
+        gpu: GPU id to use for this process
+        args: Training arguments
+    """
     args = type("Args", (object,), config_args)
     print(args.__dict__)
     print("-" * 100)
 
-    # Check for debug mode
-    if args.mode == "eval" and args.debug:
-        print(
-            "Running evaluation/inference in DEBUG mode, processing will take longer. Saving output to: {}.".format(
-                args.debug_save_dir
-            )
-        )
-        os.makedirs(args.debug_save_dir, exist_ok=True)
+    args.gpu = gpu
+    args.rank = gpu
+
+    if args.distributed:
+        init_distributed_mode(args)
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
@@ -408,7 +421,7 @@ def main():
     random.seed(seed)
 
     print("loading model")
-    device = torch.device(args.device)
+    device = torch.device(gpu)
     model, criterion, postprocessors = get_model(args, device)
 
     if args.mode == "train":
@@ -424,6 +437,42 @@ def main():
             dataset_test,
             device,
         )
+
+    if args.distributed:
+        destroy_process_group()
+
+
+def main():
+    cmd_args = get_args().__dict__
+    config_args = json.load(open(cmd_args["config_file"], "rb"))
+    for key, value in cmd_args.items():
+        if key not in config_args or value is not None:
+            config_args[key] = value
+    # config_args.update(cmd_args)
+
+    # Check for debug mode
+    if config_args["mode"] == "eval" and config_args["debug"]:
+        print(
+            "Running evaluation/inference in DEBUG mode, processing will take longer. Saving output to: {}.".format(
+                config_args["debug_save_dir"]
+            )
+        )
+        os.makedirs(config_args["debug_save_dir"], exist_ok=True)
+
+    # Set up distributed training
+    if config_args["distributed"]:
+        # Set world_size to number of GPUs
+        config_args["world_size"] = torch.cuda.device_count()
+        print(f"Using {config_args['world_size']} GPUs for distributed training")
+
+        # Use mp.spawn to launch distributed processes
+        mp.spawn(main_worker, nprocs=config_args["world_size"], args=(config_args,))
+    else:
+        # Single GPU or CPU training
+        config_args["gpu"] = 0
+        config_args["rank"] = 0
+        config_args["distributed"] = False
+        main_worker(0, config_args)
 
 
 if __name__ == "__main__":

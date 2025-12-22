@@ -21,20 +21,42 @@
         "--mode",
         "detect",
         "--detection_config_path",
-        "~/table-transformer/src/detection_config.json",
+        "src/detection_config.json",
         "--detection_model_path",
-        "~/table-transformer/models/pubtables1m_detection_detr_r18.pth",
+        "models/pubtables1m_detection_detr_r18.pth",
         "--detection_device",
         "cuda",
         "--image_dir",
-        "~/table-transformer/data/samples/images",
+        "data/samples/images",
         "--words_dir",
-        "~/table-transformer/data/samples/words",
+        "data/samples/words",
         "--out_dir",
-        "~/table-transformer/data/samples/outputs",
+        "data/samples/outputs",
         "--crop_padding",
         "20",
         "-vzp"
+      ]
+    },
+    {
+      "name": "Evaluation",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "src/main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--mode",
+        "eval",
+        "--data_type",
+        "detection",
+        "--config_file",
+        "src/detection_config.json",
+        "--data_root_dir",
+        "data/pubtables-1m/PubTables-1M-Detection",
+        "--model_load_path",
+        "models/pubtables1m_detection_detr_r18.pth",
+        "--distributed"
+        // "--test_max_size",
+        // "20"
       ]
     }
   ]

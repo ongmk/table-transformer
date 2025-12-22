@@ -1,9 +1,12 @@
 {
   // Environment settings
-  "python.analysis.exclude": ["**/.venv/**", "data/**"],
   "search.exclude": {
-    "**/.venv": true,
+    ".venv": true,
     "data/pubtables-1m/**": true
+  },
+  "files.exclude": {
+    ".venv": true,
+    "data/pubtables-1m": true
   },
   // Coding style settings
   "ruff.interpreter": ["${workspaceFolder}/.venv/bin/python"],
@@ -18,5 +21,9 @@
     "editor.codeActionsOnSave": {
       "source.fixAll": "always"
     }
+  },
+  "github.copilot.enable": {
+    "*": false,
+    "dotenv": false
   }
 }
