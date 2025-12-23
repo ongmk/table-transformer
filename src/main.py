@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 
 import detr.util.misc as utils
@@ -209,7 +210,7 @@ def get_data(args):
         return dataset_test
 
 
-def get_model(args, device):
+def get_model(args, device, gpu: int):
     """
     Loads DETR model on to the device specified.
     If a load path is specified, the state dict is updated accordingly.
@@ -227,6 +228,9 @@ def get_model(args, device):
         }
         model_state_dict.update(pretrained_dict)
         model.load_state_dict(model_state_dict, strict=True)
+
+    if args.distributed:
+        model = DDP(model, device_ids=[gpu], output_device=gpu)
     return model, criterion, postprocessors
 
 
@@ -344,7 +348,7 @@ def train(args, model, criterion, postprocessors, device):
     start_time = datetime.now()
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
-            data_loader_train.sampler.set_epoch(epoch)
+            data_loader_train.batch_sampler.sampler.set_epoch(epoch)
         print("-" * 100)
 
         epoch_timing = datetime.now()
@@ -397,13 +401,6 @@ def train(args, model, criterion, postprocessors, device):
 
 
 def main_worker(gpu: int, config_args: dict) -> None:
-    """
-    Worker function for distributed training.
-
-    Args:
-        gpu: GPU id to use for this process
-        args: Training arguments
-    """
     args = type("Args", (object,), config_args)
     print(args.__dict__)
     print("-" * 100)
@@ -411,18 +408,18 @@ def main_worker(gpu: int, config_args: dict) -> None:
     args.gpu = gpu
     args.rank = gpu
 
+    device = torch.device(gpu)
     if args.distributed:
-        init_distributed_mode(args)
+        init_distributed_mode(args, device)
 
     # fix the seed for reproducibility
-    seed = args.seed + utils.get_rank()
+    seed = args.seed + gpu
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
     print("loading model")
-    device = torch.device(gpu)
-    model, criterion, postprocessors = get_model(args, device)
+    model, criterion, postprocessors = get_model(args, device, gpu)
 
     if args.mode == "train":
         train(args, model, criterion, postprocessors, device)
@@ -437,7 +434,6 @@ def main_worker(gpu: int, config_args: dict) -> None:
             dataset_test,
             device,
         )
-
     if args.distributed:
         destroy_process_group()
 

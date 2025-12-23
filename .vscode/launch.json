@@ -51,12 +51,36 @@
         "--config_file",
         "src/detection_config.json",
         "--data_root_dir",
-        "data/pubtables-1m/PubTables-1M-Detection",
+        "~/data/pubtables-1m/PubTables-1M-Detection",
         "--model_load_path",
         "models/pubtables1m_detection_detr_r18.pth",
         "--distributed"
         // "--test_max_size",
         // "20"
+      ]
+    },
+    {
+      "name": "Training",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "src/main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--mode",
+        "train",
+        "--data_type",
+        "detection",
+        "--config_file",
+        "src/detection_config.json",
+        "--data_root_dir",
+        "~/data/pubtables-1m/PubTables-1M-Detection",
+        "--model_save_dir",
+        "models/original",
+        // "--distributed",
+        "--train_max_size",
+        "5_000",
+        "--val_max_size",
+        "5_000"
       ]
     }
   ]

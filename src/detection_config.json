@@ -1,7 +1,7 @@
 {
   "lr": 5e-5,
   "lr_backbone": 1e-5,
-  "batch_size": 30,
+  "batch_size": 15,
   "weight_decay": 1e-4,
   "epochs": 20,
   "lr_drop": 1,
@@ -20,7 +20,7 @@
   "hidden_dim": 256,
   "dropout": 0.1,
   "nheads": 8,
-  "num_queries": 15,
+  "num_queries": 3,
   "pre_norm": true,
 
   "masks": false,
@@ -41,5 +41,5 @@
   "device": "cuda",
   "seed": 42,
   "start_epoch": 0,
-  "num_workers": 1
+  "num_workers": 3
 }

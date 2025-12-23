@@ -12,9 +12,11 @@ from collections import defaultdict
 
 import PIL
 import torch
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFile, ImageFilter
 from torchvision import transforms
 from torchvision.transforms import functional as F
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Project imports
 sys.path.append("detr")

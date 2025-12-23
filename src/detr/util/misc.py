@@ -435,7 +435,7 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
-def init_distributed_mode(args):
+def init_distributed_mode(args, device):
     if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
         args.rank = int(os.environ["RANK"])
         args.world_size = int(os.environ["WORLD_SIZE"])
@@ -444,17 +444,18 @@ def init_distributed_mode(args):
         args.rank = int(os.environ["SLURM_PROCID"])
         args.gpu = args.rank % torch.cuda.device_count()
 
-    args.distributed = True
-
-    torch.cuda.set_device(args.gpu)
+    torch.cuda.set_device(device)
     args.dist_backend = "nccl"
-    dist_url = "tcp://127.0.0.1:23456"
-    print("| distributed init (rank {}): {}".format(args.rank, dist_url), flush=True)
+    args.dist_url = "tcp://127.0.0.1:23456"
+    print(
+        "| distributed init (rank {}): {}".format(args.rank, args.dist_url), flush=True
+    )
     torch.distributed.init_process_group(
         backend=args.dist_backend,
-        init_method=dist_url,
+        init_method=args.dist_url,
         world_size=args.world_size,
         rank=args.rank,
+        device_id=device,
     )
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
